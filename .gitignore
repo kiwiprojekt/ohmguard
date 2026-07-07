@@ -1,0 +1,4 @@
+# Ignore test directory and system files
+test/
+.DS_Store
+*.log

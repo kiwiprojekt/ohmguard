@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OhmGuard — LTspice SOA & Derating Studio</title>
+    <!-- Modern Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="navbar">
+            <div class="logo-area">
+                <div class="logo-icon">⚡</div>
+                <div class="logo-text">
+                    <h1>OhmGuard</h1>
+                    <p class="subtitle">100% Client-Side SPICE Safe Operating Area & Derating Studio</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="btn-import-pdf" class="btn btn-secondary" style="border-color: #3b82f6; color: #60a5fa;">📄 Import PDF Datasheet</button>
+                <input type="file" id="file-import-pdf" accept=".pdf" hidden>
+                <button id="btn-export-csv" class="btn btn-primary" disabled>📊 Export CSV Report</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- Top Drop Zone & Summary Bar -->
+            <section class="top-section">
+                <!-- Drop Zone -->
+                <div id="dropzone" class="dropzone">
+                    <input type="file" id="file-input" accept=".raw,.pdf" hidden>
+                    <div class="drop-content">
+                        <div class="upload-icon">📁</div>
+                        <div class="drop-text">
+                            <h3>Drag & Drop your LTspice <code>.raw</code> file or <code>.pdf</code> Datasheet here</h3>
+                            <p>or <span class="browse-link">browse files</span> from your computer</p>
+                        </div>
+                    </div>
+                    <div id="file-info" class="file-info hidden">
+                        <div class="file-details">
+                            <span class="file-name" id="display-file-name">my_circuit.raw</span>
+                            <span class="file-meta" id="display-file-meta">0 Variables | 0 Points</span>
+                        </div>
+                        <button id="btn-remove-file" class="btn-icon" title="Remove file">✕</button>
+                    </div>
+                </div>
+
+                <!-- Live Executive Stats -->
+                <div class="stats-grid">
+                    <div class="stat-card stat-pass">
+                        <div class="stat-label">Passed Checks</div>
+                        <div class="stat-value" id="count-pass">0</div>
+                    </div>
+                    <div class="stat-card stat-warn">
+                        <div class="stat-label">Derating Warnings</div>
+                        <div class="stat-value" id="count-warn">0</div>
+                    </div>
+                    <div class="stat-card stat-fail">
+                        <div class="stat-label">Design Violations</div>
+                        <div class="stat-value" id="count-fail">0</div>
+                    </div>
+                    <div class="stat-card stat-total">
+                        <div class="stat-label">Total Waveforms</div>
+                        <div class="stat-value" id="count-total">0</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Interactive Tab Navigation -->
+            <nav class="tabs-nav">
+                <button class="tab-btn active" data-tab="tab-validation">
+                    🛡️ Design Validation (SOA & Derating)
+                    <span class="badge" id="badge-validation">0</span>
+                </button>
+                <button class="tab-btn" data-tab="tab-explorer">
+                    📈 Waveform Explorer (All Points)
+                    <span class="badge" id="badge-explorer">0</span>
+                </button>
+                <button class="tab-btn" data-tab="tab-specs">
+                    ⚙️ Component Spec Editor
+                </button>
+            </nav>
+
+            <!-- Tab 1: Design Validation (SOA & Derating) -->
+            <section id="tab-validation" class="tab-pane active">
+                <div class="section-header">
+                    <div class="header-title">
+                        <h2>Safe Operating Area (SOA) & Derating Checklist</h2>
+                        <p>Compares simulated stress metrics against your component maximum ratings.</p>
+                    </div>
+                    <div class="filter-controls">
+                        <label>Filter Status:</label>
+                        <select id="filter-status" class="select-input">
+                            <option value="ALL">Show All</option>
+                            <option value="FAIL">🔴 Failures Only</option>
+                            <option value="WARNING">🟡 Warnings Only</option>
+                            <option value="PASS">🟢 Passes Only</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-container glass-card">
+                    <table class="data-table" id="table-validation">
+                        <thead>
+                            <tr>
+                                <th width="100">Status</th>
+                                <th width="120">Component</th>
+                                <th>Description</th>
+                                <th width="150">Parameter Checked</th>
+                                <th width="120">Simulated Value</th>
+                                <th width="120">Spec Limit</th>
+                                <th width="140">Stress / Derating %</th>
+                                <th>Waveform Expression</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-validation">
+                            <tr class="empty-row">
+                                <td colspan="8">No simulation file loaded. Drop an LTspice <code>.raw</code> file above to validate!</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Tab 2: Waveform Explorer (All Points Min/Max) -->
+            <section id="tab-explorer" class="tab-pane">
+                <div class="section-header">
+                    <div class="header-title">
+                        <h2>All-Points Waveform Min/Max Explorer</h2>
+                        <p>Complete statistical summary across every node voltage and branch current in the simulation.</p>
+                    </div>
+                    <div class="search-box">
+                        <input type="text" id="search-explorer" placeholder="🔍 Search trace name (e.g., V(out), I(C1))..." class="text-input">
+                    </div>
+                </div>
+
+                <div class="table-container glass-card">
+                    <table class="data-table" id="table-explorer">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="name">Trace Name ↕</th>
+                                <th class="sortable" data-sort="min">Min Value ↕</th>
+                                <th class="sortable" data-sort="max">Max Value ↕</th>
+                                <th class="sortable" data-sort="pkpk">Peak-to-Peak ↕</th>
+                                <th class="sortable" data-sort="rms">RMS (Integrated) ↕</th>
+                                <th class="sortable" data-sort="avg">Average ↕</th>
+                                <th>Unit</th>
+                                <th>Quick Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-explorer">
+                            <tr class="empty-row">
+                                <td colspan="8">No simulation file loaded. Drop an LTspice <code>.raw</code> file above!</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Tab 3: Component Spec Editor -->
+            <section id="tab-specs" class="tab-pane">
+                <div class="section-header">
+                    <div class="header-title">
+                        <h2>Component Specification & Derating Editor</h2>
+                        <p>Define components, mathematical waveform formulas, and rating limits. Changes apply instantly!</p>
+                    </div>
+                    <div class="spec-actions">
+                        <button id="btn-add-comp" class="btn btn-secondary">➕ Add Component Check</button>
+                        <button id="btn-import-spec" class="btn btn-secondary">📥 Import Spec (JSON/YAML)</button>
+                        <input type="file" id="file-import-spec" accept=".json,.yaml,.yml" hidden>
+                        <button id="btn-export-spec" class="btn btn-secondary">📤 Export Spec</button>
+                    </div>
+                </div>
+
+                <div id="spec-cards-container" class="specs-grid">
+                    <!-- Dynamic spec editor cards inserted here via JS -->
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>OhmGuard • 100% Client-Side SPICE Safe Operating Area & Derating Studio • No files ever leave your machine</p>
+        </footer>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- PDF.js Client-Side Datasheet Parsing Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            const workerUrl = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            try {
+                // Use Blob URL to prevent Cross-Origin Worker SecurityError on static sites / GitHub Pages
+                const blob = new Blob([`importScripts("${workerUrl}");`], { type: 'application/javascript' });
+                pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+            } catch (e) {
+                // Fallback for environments where Blob creation is restricted
+                pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+            }
+        }
+    </script>
+    <!-- Application Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
