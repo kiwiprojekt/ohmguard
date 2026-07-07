@@ -4,7 +4,7 @@
 
 import { AppState, resetFileDataState } from './state.js';
 import { parseLTspiceRaw } from './spiceParser.js';
-import { evaluateWaveformExpression, calculateWaveformMetrics } from './evaluator.js';
+import { evaluateWaveformExpression, calculateWaveformMetrics, resolveFallbackExpression } from './evaluator.js';
 import { extractSpecsFromPDF, extractSpecsWithGemini } from './pdfParser.js';
 
 // --- Toast Notification System ---
@@ -187,7 +187,8 @@ export function runFullAnalysis() {
     let failCount = 0;
 
     for (const [compId, comp] of Object.entries(AppState.specs)) {
-        const wave = evaluateWaveformExpression(comp.expression, AppState.data, AppState.numPoints);
+        const resolvedExpr = resolveFallbackExpression(comp.expression, AppState.data);
+        const wave = evaluateWaveformExpression(resolvedExpr, AppState.data, AppState.numPoints);
         const metrics = calculateWaveformMetrics(wave, AppState.timeVector);
         
         let simVal = 0;
@@ -232,7 +233,7 @@ export function runFullAnalysis() {
         validationList.push({
             id: compId,
             description: comp.description,
-            expression: comp.expression,
+            expression: resolvedExpr,
             metric: comp.metric.toUpperCase().replace("_", " "),
             simVal: simVal,
             limit: limit,

@@ -2,6 +2,20 @@
    OhmGuard - Client-Side PDF Datasheet Parser
    ========================================================================== */
 
+const PIN_FALLBACK_MAP = {
+    "V1": ["V(in)", "V(in1)", "V(vin)", "V(supply)"],
+    "VIN": ["V(in)", "V(in1)", "V(vin)", "V(supply)"],
+    "IN": ["V(in)", "V(in1)", "V(vin)", "V(supply)"],
+    "V2": ["V(in2)", "V(v2)"],
+    "VOUT": ["V(out)", "V(vout)"],
+    "OUT": ["V(out)", "V(vout)"],
+    "UV1": ["V(n011)", "V(in1)"],
+    "OV1": ["V(n012)"],
+    "UV2": ["V(in2)", "V(n017)"],
+    "OV2": ["V(n015)"],
+    "TMR": ["V(n019)"]
+};
+
 /**
  * Parses a component manufacturer datasheet PDF (first 5 pages) to extract 
  * absolute maximum rating limits using regular expressions and matches them 
@@ -74,22 +88,8 @@ export async function extractSpecsFromPDF(file, availableVariables = []) {
 
                 // Build robust, generic fallback expressions
                 const fallbacks = [`V(${ident.toLowerCase()})`];
-                if (baseId === "V1" || baseId === "VIN" || baseId === "IN") {
-                    fallbacks.push("V(in)", "V(in1)", "V(vin)", "V(supply)");
-                } else if (baseId === "V2") {
-                    fallbacks.push("V(in2)", "V(v2)");
-                } else if (baseId === "VOUT" || baseId === "OUT") {
-                    fallbacks.push("V(out)", "V(vout)");
-                } else if (baseId === "UV1") {
-                    fallbacks.push("V(n011)", "V(in1)");
-                } else if (baseId === "OV1") {
-                    fallbacks.push("V(n012)");
-                } else if (baseId === "UV2") {
-                    fallbacks.push("V(in2)", "V(n017)");
-                } else if (baseId === "OV2") {
-                    fallbacks.push("V(n015)");
-                } else if (baseId === "TMR") {
-                    fallbacks.push("V(n019)");
+                if (PIN_FALLBACK_MAP[baseId]) {
+                    fallbacks.push(...PIN_FALLBACK_MAP[baseId]);
                 }
 
                 if (availableVariables && availableVariables.length > 0) {

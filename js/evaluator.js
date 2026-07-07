@@ -11,18 +11,46 @@
  * @param {number} nPoints - Total simulation data points
  * @returns {Float32Array|null} Vector result, or null on error
  */
-export function evaluateWaveformExpression(expr, traceData, nPoints) {
-    if (!expr || !traceData || nPoints === 0) return null;
+/**
+ * Helper to escape special regular expression characters.
+ */
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-    // Support fallback trace checking with || syntax (e.g. "V(uv2) || V(in2)")
+/**
+ * Resolves a fallback trace expression (containing '||') to the first matching trace in traceData.
+ * If no matching trace is found, returns the first trace in the fallback list.
+ * 
+ * @param {string} expr - Expression string (e.g. "V(in1) || V(in) || V(supply)")
+ * @param {Object} traceData - Map of traceName -> Float32Array
+ * @returns {string} The resolved trace expression
+ */
+export function resolveFallbackExpression(expr, traceData) {
+    if (!expr || !traceData) return expr;
     if (expr.includes("||")) {
         const parts = expr.split("||").map(s => s.trim());
         for (const part of parts) {
-            if (traceData[part]) return traceData[part];
+            if (traceData[part]) return part;
             const found = Object.keys(traceData).find(k => k.toLowerCase() === part.toLowerCase());
-            if (found) return traceData[found];
+            if (found) return found;
         }
+        return parts[0];
     }
+    return expr;
+}
+
+/**
+ * Evaluates mathematical SPICE expressions into a Float32Array vector.
+ * Supports standard algebraic operators, functions, and differential voltages V(a,b).
+ * 
+ * @param {string} expr - Formula to evaluate, e.g. "V(out)", "V(in1, in2)", "I(C1) * V(out)"
+ * @param {Object} traceData - Map of traceName -> Float32Array
+ * @param {number} nPoints - Total simulation data points
+ * @returns {Float32Array|null} Vector result, or null on error
+ */
+export function evaluateWaveformExpression(expr, traceData, nPoints) {
+    if (!expr || !traceData || nPoints === 0) return null;
 
     // Check if expression is simply a direct trace name (fast path)
     if (traceData[expr]) {
@@ -42,20 +70,21 @@ export function evaluateWaveformExpression(expr, traceData, nPoints) {
         // Replace math functions with Math.func
         jsExpr = jsExpr.replace(/\b(abs|sqrt|sin|cos|exp|log|max|min)\b/g, 'Math.$1');
         
-        // [BUGFIX]: Pre-convert differential node voltage expressions:
+        // Pre-convert differential node voltage expressions:
         // V(nodeA, nodeB) should be replaced with (V(nodeA) - V(nodeB))
         // Likewise for I(nodeA, nodeB) or other differential parameters.
-        jsExpr = jsExpr.replace(/([VvIi])\(([^,]+)\s*,\s*([^)]+)\)/g, '($1($2) - $1($3))');
+        jsExpr = jsExpr.replace(/([VvIi])\(([^,()]+)\s*,\s*([^,()]+)\)/g, '($1($2) - $1($3))');
 
-        // Replace SPICE trace identifiers like V(out), I(C1), Id(M1), V(n1,n2) with data["V(out)"][i]
-        const pattern = /[a-zA-Z]\w*\([^)]+\)/g;
-        jsExpr = jsExpr.replace(pattern, (match) => {
-            const foundKey = Object.keys(traceData).find(k => k.toLowerCase() === match.toLowerCase());
-            if (!foundKey) {
-                throw new Error(`Trace "${match}" not found in waveform data!`);
-            }
-            return `data["${foundKey}"][i]`;
-        });
+        // Replace SPICE trace identifiers with data["traceName"][i] references
+        const sortedTraceKeys = Object.keys(traceData).sort((a, b) => b.length - a.length);
+        for (const key of sortedTraceKeys) {
+            const escaped = escapeRegExp(key);
+            let pattern = escaped;
+            if (/^\w/.test(key)) pattern = '\\b' + pattern;
+            if (/\w$/.test(key)) pattern = pattern + '\\b';
+            const regex = new RegExp(pattern, 'gi');
+            jsExpr = jsExpr.replace(regex, `data["${key}"][i]`);
+        }
 
         // Security check: validate that the compiled code contains only safe math operations
         const safeExprCheck = jsExpr.replace(/data\["[^"]+"\]\[i\]/g, '')
@@ -63,7 +92,7 @@ export function evaluateWaveformExpression(expr, traceData, nPoints) {
                                     .replace(/\d+(\.\d+)?/g, '')
                                     .replace(/i/g, '')
                                     .trim();
-        const allowedOperators = /^[+\-*/%()?:\s><=!&|]*$/;
+        const allowedOperators = /^[+\-*/%()?,:\s><=!&|]*$/;
         if (!allowedOperators.test(safeExprCheck)) {
             throw new Error(`Forbidden operations found in math expression: "${safeExprCheck}"`);
         }
