@@ -5,7 +5,7 @@
 import { AppState, resetFileDataState } from './state.js';
 import { parseLTspiceRaw } from './spiceParser.js';
 import { evaluateWaveformExpression, calculateWaveformMetrics } from './evaluator.js';
-import { extractSpecsFromPDF } from './pdfParser.js';
+import { extractSpecsFromPDF, extractSpecsWithGemini } from './pdfParser.js';
 
 // --- Toast Notification System ---
 export function showToast(msg) {
@@ -303,7 +303,12 @@ export async function parsePDFDatasheet(file) {
     showToast(`⏳ Reading & Parsing PDF Datasheet (${file.name})...`);
 
     try {
-        const newSpecs = await extractSpecsFromPDF(file, AppState.variables);
+        let newSpecs;
+        if (AppState.useAI && AppState.apiKey) {
+            newSpecs = await extractSpecsWithGemini(file, AppState.variables, AppState.apiKey, AppState.modelName);
+        } else {
+            newSpecs = await extractSpecsFromPDF(file, AppState.variables);
+        }
         AppState.specs = newSpecs;
         renderSpecEditor();
         if (AppState.variables.length > 0) {
@@ -316,7 +321,7 @@ export async function parsePDFDatasheet(file) {
         document.querySelector('[data-tab="tab-specs"]').classList.add("active");
         document.getElementById("tab-specs").classList.add("active");
 
-        showToast(`📄 Successfully extracted ${Object.keys(newSpecs).length} Absolute Maximum Ratings from ${file.name} (No LLM needed)!`);
+        showToast(`📄 Successfully extracted ${Object.keys(newSpecs).length} Absolute Maximum Ratings from ${file.name}!`);
     } catch (err) {
         console.error("Error reading PDF:", err);
         showToast(`❌ Error parsing PDF: ${err.message}`);
@@ -508,6 +513,41 @@ export function initUI() {
         }
     });
     document.getElementById("btn-export-csv").addEventListener("click", exportCSVReport);
+
+    // AI Settings drawer bindings
+    const settingsDrawer = document.getElementById("settings-drawer");
+    const toggleSettingsBtn = document.getElementById("btn-toggle-settings");
+    const saveSettingsBtn = document.getElementById("btn-save-settings");
+    
+    const apiKeyInput = document.getElementById("input-api-key");
+    const modelNameInput = document.getElementById("input-model-name");
+    const useAiCheckbox = document.getElementById("checkbox-use-ai");
+
+    // Populate initial settings fields
+    apiKeyInput.value = AppState.apiKey;
+    modelNameInput.value = AppState.modelName;
+    useAiCheckbox.checked = AppState.useAI;
+
+    toggleSettingsBtn.addEventListener("click", () => {
+        settingsDrawer.classList.toggle("hidden");
+    });
+
+    saveSettingsBtn.addEventListener("click", () => {
+        const key = apiKeyInput.value.trim();
+        const model = modelNameInput.value.trim() || "gemini-2.5-flash";
+        const useAi = useAiCheckbox.checked;
+
+        AppState.apiKey = key;
+        AppState.modelName = model;
+        AppState.useAI = useAi;
+
+        localStorage.setItem("ohmguard_api_key", key);
+        localStorage.setItem("ohmguard_model_name", model);
+        localStorage.setItem("ohmguard_use_ai", useAi ? "true" : "false");
+
+        showToast("✅ Settings saved successfully!");
+        settingsDrawer.classList.add("hidden");
+    });
 
     // Filters & Search
     document.getElementById("filter-status").addEventListener("change", renderValidationTable);

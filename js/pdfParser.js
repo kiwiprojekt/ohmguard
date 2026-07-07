@@ -182,3 +182,158 @@ export async function extractSpecsFromPDF(file, availableVariables = []) {
 
     return newSpecs;
 }
+
+/**
+ * Asynchronously converts a File object to a Base64 encoded string.
+ * Used for direct binary transmission of PDF files to Gemini API.
+ * 
+ * @param {File} file - Raw file object
+ * @returns {Promise<string>} Base64 data string
+ */
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+            const base64String = reader.result.split(',')[1];
+            resolve(base64String);
+        };
+        reader.onerror = error => reject(error);
+    });
+}
+
+/**
+ * Extracts absolute maximum rating checks using Google AI Studio (Gemini/Gemma).
+ * Automatically detects model modality: sends raw PDF directly for Gemini,
+ * or fallback to local text extraction for text-only models (like Gemma).
+ * 
+ * @param {File} file - PDF datasheet file
+ * @param {Array} availableVariables - Traces array from SPICE parser
+ * @param {string} apiKey - Google AI Studio key
+ * @param {string} modelName - Model ID (e.g. gemini-2.5-flash)
+ * @returns {Promise<Object>} specifications dictionary
+ */
+export async function extractSpecsWithGemini(file, availableVariables = [], apiKey, modelName = "gemini-2.5-flash") {
+    const isGemini = modelName.toLowerCase().startsWith("gemini-");
+    const parts = [];
+
+    if (isGemini) {
+        // Direct PDF upload (multimodal)
+        const base64Data = await fileToBase64(file);
+        parts.push({
+            inlineData: {
+                mimeType: "application/pdf",
+                data: base64Data
+            }
+        });
+    } else {
+        // Fallback to local PDF.js text extraction (text-only models like Gemma)
+        if (!window.pdfjsLib) {
+            throw new Error("PDF.js library not loaded. Check internet connection or CDN.");
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        
+        let fullText = "";
+        const maxPages = Math.min(pdf.numPages, 5);
+        for (let p = 1; p <= maxPages; p++) {
+            const page = await pdf.getPage(p);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(" ");
+            fullText += pageText + "\n";
+        }
+        parts.push({
+            text: `Datasheet raw text content:\n${fullText}`
+        });
+    }
+
+    const availableTracesList = availableVariables.map(v => `"${v.name}"`).join(", ");
+
+    const instructions = `You are a professional hardware engineer. Extract Absolute Maximum Ratings (voltages, currents, power dissipation) from the provided datasheet and map them to the available simulation traces to create design validation checks.
+
+Available simulation traces (you MUST map rating checks to these where possible):
+[${availableTracesList}]
+
+Construct check specifications. The mathematical waveform expressions MUST use the available traces. If the rating corresponds to a pin (e.g. VIN), use the matching trace (e.g. V(in) or V(vin)). You can also construct differential expressions like V(in1, in2) or mathematical expressions like V(gate) - V(source) if applicable.
+
+You must output a JSON array of check objects matching this schema:
+- compId: string, uppercase identifier (e.g., "VIN_MAX", "VOUT_MIN", "ISUPPLY_MAX")
+- description: string, clear description of what is checked
+- expression: string, mathematical expression using the available traces (e.g. "V(in)", "V(out)", or differential like "V(in1, in2)" or "V(gate) - V(source)").
+- metric: string, one of: "max_peak", "min_peak", "rms", "avg"
+- limit: number, the rating limit value
+- unit: string, the unit (e.g. "V", "A", "W")
+
+Only extract ratings that can be verified using the available simulation traces.
+Return ONLY the raw JSON array. Do not include markdown code block formatting.`;
+
+    parts.push({
+        text: instructions
+    });
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+    const requestBody = {
+        contents: [{
+            parts: parts
+        }],
+        generationConfig: {
+            responseMimeType: "application/json"
+        }
+    };
+
+    if (isGemini) {
+        requestBody.generationConfig.responseSchema = {
+            type: "ARRAY",
+            items: {
+                type: "OBJECT",
+                properties: {
+                    compId: { type: "STRING" },
+                    description: { type: "STRING" },
+                    expression: { type: "STRING" },
+                    metric: { type: "STRING", enum: ["max_peak", "min_peak", "rms", "avg"] },
+                    limit: { type: "NUMBER" },
+                    unit: { type: "STRING" }
+                },
+                required: ["compId", "description", "expression", "metric", "limit", "unit"]
+            }
+        };
+    }
+
+    const response = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error?.message || `HTTP error ${response.status}`);
+    }
+
+    const resData = await response.json();
+    const textResult = resData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!textResult) {
+        throw new Error("No response content from Gemini API");
+    }
+
+    const parsed = JSON.parse(textResult.trim());
+    const specs = {};
+    const list = Array.isArray(parsed) ? parsed : (parsed.components || parsed.checks || []);
+
+    for (const item of list) {
+        if (!item.compId || !item.expression) continue;
+        specs[item.compId] = {
+            description: item.description || `AI extracted check for ${item.compId}`,
+            expression: item.expression,
+            metric: item.metric || "max_peak",
+            limit: item.limit ?? 0,
+            unit: item.unit || ""
+        };
+    }
+
+    return specs;
+}
+

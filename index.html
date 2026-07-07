@@ -22,11 +22,39 @@
                 </div>
             </div>
             <div class="header-actions">
+                <button id="btn-toggle-settings" class="btn btn-secondary">⚙️ Settings</button>
                 <button id="btn-import-pdf" class="btn btn-secondary" style="border-color: #3b82f6; color: #60a5fa;">📄 Import PDF Datasheet</button>
                 <input type="file" id="file-import-pdf" accept=".pdf" hidden>
                 <button id="btn-export-csv" class="btn btn-primary" disabled>📊 Export CSV Report</button>
             </div>
         </header>
+
+        <!-- Settings Drawer -->
+        <section id="settings-drawer" class="glass-card hidden" style="margin-bottom: 24px; padding: 20px; border-color: hsla(210, 100%, 56%, 0.3);">
+            <div class="section-header" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                <div class="header-title">
+                    <h3 style="font-size: 1.1rem; color: #fff;">🔑 Google AI Studio / Gemini Integration</h3>
+                    <p style="font-size: 0.8rem; color: var(--text-muted);">Configure direct PDF document analysis or text fallback parsing using Gemini/Gemma models.</p>
+                </div>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+                <div class="form-group" style="flex-grow: 2; min-width: 250px;">
+                    <label style="font-size: 0.75rem;">Google AI Studio API Key</label>
+                    <input type="password" id="input-api-key" placeholder="AIzaSy..." class="text-input" style="width: 100%;">
+                </div>
+                <div class="form-group" style="flex-grow: 1; min-width: 180px;">
+                    <label style="font-size: 0.75rem;">Model Name</label>
+                    <input type="text" id="input-model-name" placeholder="gemini-2.5-flash" class="text-input" style="width: 100%;">
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 8px; height: 38px;">
+                    <input type="checkbox" id="checkbox-use-ai" style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="checkbox-use-ai" style="cursor: pointer; text-transform: none; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Use AI for PDF Datasheet Parsing</label>
+                </div>
+                <div>
+                    <button id="btn-save-settings" class="btn btn-primary" style="height: 38px;">Save Settings</button>
+                </div>
+            </div>
+        </section>
 
         <!-- Main Workspace -->
         <main class="main-content">

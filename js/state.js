@@ -14,6 +14,11 @@ export const AppState = {
     // Component Specifications & Derating Limits
     specs: {},
     
+    // AI Settings (persisted to localStorage)
+    apiKey: localStorage.getItem("ohmguard_api_key") || "",
+    modelName: localStorage.getItem("ohmguard_model_name") || "gemini-2.5-flash",
+    useAI: localStorage.getItem("ohmguard_use_ai") === "true",
+
     // Calculated Results
     validationResults: [],
     explorerResults: [],
