@@ -16,7 +16,7 @@ export const AppState = {
     
     // AI Settings (persisted to localStorage)
     apiKey: localStorage.getItem("ohmguard_api_key") || "",
-    modelName: localStorage.getItem("ohmguard_model_name") || "gemini-2.5-flash",
+    modelName: localStorage.getItem("ohmguard_model_name") || "gemini-3.1-flash-lite",
     useAI: localStorage.getItem("ohmguard_use_ai") === "true",
 
     // Calculated Results

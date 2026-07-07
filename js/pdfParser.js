@@ -210,10 +210,10 @@ function fileToBase64(file) {
  * @param {File} file - PDF datasheet file
  * @param {Array} availableVariables - Traces array from SPICE parser
  * @param {string} apiKey - Google AI Studio key
- * @param {string} modelName - Model ID (e.g. gemini-2.5-flash)
+ * @param {string} modelName - Model ID (e.g. gemini-3.1-flash-lite)
  * @returns {Promise<Object>} specifications dictionary
  */
-export async function extractSpecsWithGemini(file, availableVariables = [], apiKey, modelName = "gemini-2.5-flash") {
+export async function extractSpecsWithGemini(file, availableVariables = [], apiKey, modelName = "gemini-3.1-flash-lite") {
     const isGemini = modelName.toLowerCase().startsWith("gemini-");
     const parts = [];
 

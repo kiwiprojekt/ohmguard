@@ -534,7 +534,7 @@ export function initUI() {
 
     saveSettingsBtn.addEventListener("click", () => {
         const key = apiKeyInput.value.trim();
-        const model = modelNameInput.value.trim() || "gemini-2.5-flash";
+        const model = modelNameInput.value.trim() || "gemini-3.1-flash-lite";
         const useAi = useAiCheckbox.checked;
 
         AppState.apiKey = key;
