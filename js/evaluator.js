@@ -28,16 +28,47 @@ function escapeRegExp(string) {
  */
 export function resolveFallbackExpression(expr, traceData) {
     if (!expr || !traceData) return expr;
+    const keys = Object.keys(traceData);
+    if (keys.length === 0) return expr;
+
+    // Helper to find exact or standard engineering rail match without guessing
+    const findMatch = (target) => {
+        if (traceData[target]) return target;
+        const lower = target.toLowerCase();
+        let found = keys.find(k => k.toLowerCase() === lower);
+        if (found) return found;
+
+        // Check if target is V(...) or simply a node name
+        const matchV = lower.match(/^[v]\(([^)]+)\)$/);
+        const node = matchV ? matchV[1].trim() : lower;
+
+        // Standard engineering pin-to-net normalization (V1 -> in1, VOUT -> out)
+        const candidates = [];
+        if (node === "v1" || node === "vin1" || node === "in1") candidates.push("v(in1)", "v(vin1)", "v(v1)", "v(in)");
+        if (node === "v2" || node === "vin2" || node === "in2") candidates.push("v(in2)", "v(vin2)", "v(v2)");
+        if (node === "vout" || node === "out") candidates.push("v(out)", "v(vout)");
+        if (node === "vin" || node === "in") candidates.push("v(in)", "v(vin)", "v(in1)");
+
+        for (const cand of candidates) {
+            found = keys.find(k => k.toLowerCase() === cand);
+            if (found) return found;
+        }
+        return target;
+    };
+
     if (expr.includes("||")) {
         const parts = expr.split("||").map(s => s.trim());
         for (const part of parts) {
-            if (traceData[part]) return part;
-            const found = Object.keys(traceData).find(k => k.toLowerCase() === part.toLowerCase());
-            if (found) return found;
+            const resolved = findMatch(part);
+            if (traceData[resolved] || keys.some(k => k.toLowerCase() === resolved.toLowerCase())) {
+                return resolved;
+            }
         }
         return parts[0];
     }
-    return expr;
+
+    const resolvedSingle = findMatch(expr);
+    return resolvedSingle;
 }
 
 /**

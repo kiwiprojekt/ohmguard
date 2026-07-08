@@ -77,6 +77,20 @@ export function renderValidationTable() {
             `;
         }
 
+        let exprCellHTML = `<code>${row.expression}</code>`;
+        if (AppState.variables && AppState.variables.length > 0) {
+            const options = AppState.variables.map(v => `<option value="${v.name}" ${row.expression === v.name ? 'selected' : ''}>${v.name}</option>`).join("");
+            exprCellHTML = `
+                <div style="display: flex; align-items: center; gap: 6px; justify-content: space-between;">
+                    <code style="flex: 1; word-break: break-all;">${row.expression}</code>
+                    <select class="trace-map-select" onchange="window.mapSpecTrace('${row.id}', this.value)" title="Override or map schematic trace for this check" style="padding: 2px 6px; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text); cursor: pointer;">
+                        <option value="">🔗 Map...</option>
+                        ${options}
+                    </select>
+                </div>
+            `;
+        }
+
         tr.innerHTML = `
             <td><span class="status-badge status-${row.status}">● ${row.status}</span></td>
             <td><strong>${row.id}</strong></td>
@@ -89,11 +103,20 @@ export function renderValidationTable() {
                     ${stressBarHTML}
                 </div>
             </td>
-            <td><code>${row.expression}</code></td>
+            <td>${exprCellHTML}</td>
         `;
         tbody.appendChild(tr);
     }
 }
+
+export function mapSpecTrace(compId, newTrace) {
+    if (!newTrace || !AppState.specs[compId]) return;
+    AppState.specs[compId].expression = newTrace;
+    saveState();
+    runFullAnalysis();
+    showToast(`🔗 Mapped check ${compId} to trace ${newTrace}`);
+}
+window.mapSpecTrace = mapSpecTrace;
 
 // --- Render Explorer Table ---
 export function renderExplorerTable() {
