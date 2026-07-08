@@ -13,6 +13,7 @@ export const AppState = {
     
     // Component Specifications & Derating Limits
     specs: {},
+    loadedSpecFiles: [],  // Array of { name, type, count }
     
     // AI Settings (persisted to localStorage)
     apiKey: localStorage.getItem("ohmguard_api_key") || "",

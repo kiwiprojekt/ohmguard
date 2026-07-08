@@ -1,5 +1,6 @@
 # Ignore large test assets and system files
 test/*.raw
 test/*.pdf
+test/secrets.json
 .DS_Store
 *.log

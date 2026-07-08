@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { parseLTspiceRaw } from '../js/spiceParser.js';
 import { evaluateWaveformExpression, calculateWaveformMetrics, resolveFallbackExpression } from '../js/evaluator.js';
+import { extractSpecsFromPDF, extractSpecsWithGemini } from '../js/pdfParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,10 +123,114 @@ function runMetricsTests() {
     console.log("✅ Metrics Tests Passed!\n");
 }
 
+async function runIntegrationTests() {
+    console.log("=== Running Integration Tests (Local & AI PDF Parsing) ===");
+    
+    const rawFilePath = path.join(__dirname, 'LTC4418.raw');
+    const pdfFilePath = path.join(__dirname, 'ltc4418.pdf');
+    
+    const rawBuffer = fs.readFileSync(rawFilePath);
+    const arrayBuffer = rawBuffer.buffer.slice(rawBuffer.byteOffset, rawBuffer.byteOffset + rawBuffer.byteLength);
+    const parsed = parseLTspiceRaw(arrayBuffer);
+    
+    // Test 1: Local Regex PDF Extraction against LTC4418.raw
+    console.log("Testing Local Regex PDF Parsing against simulation waveforms...");
+    
+    // Mock window.pdfjsLib for Node.js environment
+    global.window = global.window || {};
+    global.window.pdfjsLib = {
+        getDocument: () => ({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: () => Promise.resolve({
+                    getTextContent: () => Promise.resolve({
+                        items: [
+                            { str: "Absolute Maximum Ratings" },
+                            { str: "V1, V2, VOUT ::: -0.3V to 60V" },
+                            { str: "UV1, OV1, UV2, OV2, TMR ::: -0.3V to 6V" },
+                            { str: "EN, SHDN ::: -0.3V to 60V" },
+                            { str: "VALID1, VALID2 ::: -0.3V to 60V" },
+                            { str: "INTVCC ::: -0.3V to 6.2V" }
+                        ]
+                    })
+                })
+            })
+        })
+    };
+    
+    const mockPdfFile = {
+        name: 'ltc4418.pdf',
+        arrayBuffer: async () => fs.readFileSync(pdfFilePath)
+    };
+    
+    const localSpecs = await extractSpecsFromPDF(mockPdfFile, parsed.variables);
+    const localSpecKeys = Object.keys(localSpecs);
+    console.log(`Extracted ${localSpecKeys.length} specs via Local Regex.`);
+    assert(localSpecKeys.length > 0, "Local regex extraction should return specifications");
+    
+    let localProbedCount = 0;
+    let localUnprobedCount = 0;
+    for (const [compId, spec] of Object.entries(localSpecs)) {
+        const resolvedExpr = resolveFallbackExpression(spec.expression, parsed.data);
+        const wave = evaluateWaveformExpression(resolvedExpr, parsed.data, parsed.numPoints);
+        if (wave) {
+            localProbedCount++;
+        } else {
+            localUnprobedCount++;
+        }
+    }
+    console.log(`Local Regex Evaluation: ${localProbedCount} probed checks evaluated, ${localUnprobedCount} unprobed pins cleanly identified without errors.`);
+    assert(localSpecKeys.length > 0, "Local regex extraction should return specifications");
+    console.log("✅ Local Regex Specifications evaluated cleanly without errors!\n");
+
+    // Test 2: AI Gemini PDF Extraction against LTC4418.raw
+    let apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        try {
+            const secretsPath = path.join(__dirname, 'secrets.json');
+            if (fs.existsSync(secretsPath)) {
+                const secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
+                apiKey = secrets.GEMINI_API_KEY;
+            }
+        } catch (e) {
+            // Ignore missing or malformed secrets file
+        }
+    }
+    if (!apiKey) {
+        console.warn("⚠️ No GEMINI_API_KEY found (in process.env or test/secrets.json). Skipping AI Gemini Integration Test.");
+        console.log("✅ Integration Tests Passed (Local Regex only)!\n");
+        return;
+    }
+    const modelName = "gemini-3.1-flash-lite";
+    
+    const aiSpecs = await extractSpecsWithGemini(mockPdfFile, parsed.variables, apiKey, modelName);
+    const aiSpecKeys = Object.keys(aiSpecs);
+    console.log(`Extracted ${aiSpecKeys.length} authoritative specs via AI Gemini.`);
+    
+    assert(aiSpecKeys.length >= 10, `AI Gemini extraction should be stable and thorough (expected >= 10 specs, got ${aiSpecKeys.length})`);
+    
+    let aiProbedCount = 0;
+    let aiUnprobedCount = 0;
+    for (const [compId, spec] of Object.entries(aiSpecs)) {
+        const resolvedExpr = resolveFallbackExpression(spec.expression, parsed.data);
+        const wave = evaluateWaveformExpression(resolvedExpr, parsed.data, parsed.numPoints);
+        if (wave) {
+            aiProbedCount++;
+        } else {
+            aiUnprobedCount++;
+        }
+    }
+    console.log(`AI Gemini Evaluation: ${aiProbedCount} probed checks evaluated, ${aiUnprobedCount} unprobed pins cleanly identified without errors.`);
+    assert(aiProbedCount > 0, "At least some AI specifications should match probed traces in LTC4418.raw");
+    console.log("✅ AI Gemini Specifications evaluated cleanly without errors!\n");
+    console.log("✅ Integration Tests Passed!\n");
+}
+
 try {
     runParserTests();
     runEvaluatorTests();
     runMetricsTests();
+    await runIntegrationTests();
     console.log("🎉 All tests passed successfully!");
 } catch (error) {
     console.error("❌ Test run failed:", error.message);

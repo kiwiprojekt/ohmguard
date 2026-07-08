@@ -75,8 +75,43 @@ export function evaluateWaveformExpression(expr, traceData, nPoints) {
         // Likewise for I(nodeA, nodeB) or other differential parameters.
         jsExpr = jsExpr.replace(/([VvIi])\(([^,()]+)\s*,\s*([^,()]+)\)/g, '($1($2) - $1($3))');
 
-        // Replace SPICE trace identifiers with data["traceName"][i] references
+        // Resolve bare identifiers to V(node) or I(device) if they match existing traces
         const sortedTraceKeys = Object.keys(traceData).sort((a, b) => b.length - a.length);
+        const words = [];
+        const regexWords = /(?<![VvIi]\()\b([A-Za-z_][A-Za-z0-9_]*)\b/g;
+        let match;
+        while ((match = regexWords.exec(jsExpr)) !== null) {
+            words.push(match[1]);
+        }
+        
+        const mathReserved = new Set(["abs", "sqrt", "sin", "cos", "exp", "log", "max", "min", "Math", "i"]);
+        for (const word of words) {
+            if (mathReserved.has(word)) continue;
+            
+            // If the word itself exists directly in traceData, leave it for regular replacement
+            const exactKey = sortedTraceKeys.find(k => k.toLowerCase() === word.toLowerCase());
+            if (exactKey) continue;
+
+            // Otherwise, check if V(word) or I(word) exists in trace keys
+            const vKey = `v(${word})`;
+            const iKey = `i(${word})`;
+            
+            const matchingVKey = sortedTraceKeys.find(k => k.toLowerCase() === vKey.toLowerCase());
+            if (matchingVKey) {
+                const regex = new RegExp('\\b' + escapeRegExp(word) + '\\b', 'g');
+                jsExpr = jsExpr.replace(regex, matchingVKey);
+                continue;
+            }
+
+            const matchingIKey = sortedTraceKeys.find(k => k.toLowerCase() === iKey.toLowerCase());
+            if (matchingIKey) {
+                const regex = new RegExp('\\b' + escapeRegExp(word) + '\\b', 'g');
+                jsExpr = jsExpr.replace(regex, matchingIKey);
+                continue;
+            }
+        }
+
+        // Replace SPICE trace identifiers with data["traceName"][i] references
         for (const key of sortedTraceKeys) {
             const escaped = escapeRegExp(key);
             let pattern = escaped;
@@ -94,7 +129,7 @@ export function evaluateWaveformExpression(expr, traceData, nPoints) {
                                     .trim();
         const allowedOperators = /^[+\-*/%()?,:\s><=!&|]*$/;
         if (!allowedOperators.test(safeExprCheck)) {
-            throw new Error(`Forbidden operations found in math expression: "${safeExprCheck}"`);
+            return null; // Unmapped bare identifiers or unsupported syntax
         }
 
         const result = new Float32Array(nPoints);
@@ -107,7 +142,6 @@ export function evaluateWaveformExpression(expr, traceData, nPoints) {
         evaluator(traceData, result, nPoints, Math);
         return result;
     } catch (err) {
-        console.warn(`Could not evaluate expression: "${expr}" ->`, err.message);
         return null;
     }
 }

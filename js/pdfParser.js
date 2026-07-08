@@ -2,19 +2,6 @@
    OhmGuard - Client-Side PDF Datasheet Parser
    ========================================================================== */
 
-const PIN_FALLBACK_MAP = {
-    "V1": ["V(in)", "V(in1)", "V(vin)", "V(supply)"],
-    "VIN": ["V(in)", "V(in1)", "V(vin)", "V(supply)"],
-    "IN": ["V(in)", "V(in1)", "V(vin)", "V(supply)"],
-    "V2": ["V(in2)", "V(v2)"],
-    "VOUT": ["V(out)", "V(vout)"],
-    "OUT": ["V(out)", "V(vout)"],
-    "UV1": ["V(n011)", "V(in1)"],
-    "OV1": ["V(n012)"],
-    "UV2": ["V(in2)", "V(n017)"],
-    "OV2": ["V(n015)"],
-    "TMR": ["V(n019)"]
-};
 
 /**
  * Parses a component manufacturer datasheet PDF (first 5 pages) to extract 
@@ -86,12 +73,8 @@ export async function extractSpecsFromPDF(file, availableVariables = []) {
                 const maxKey = `${baseId}_MAX`;
                 const minKey = `${baseId}_MIN`;
 
-                // Build robust, generic fallback expressions
+                // Build robust expressions strictly from explicit names (no guessing)
                 const fallbacks = [`V(${ident.toLowerCase()})`];
-                if (PIN_FALLBACK_MAP[baseId]) {
-                    fallbacks.push(...PIN_FALLBACK_MAP[baseId]);
-                }
-
                 if (availableVariables && availableVariables.length > 0) {
                     const simTraces = availableVariables.map(v => v.name);
                     for (const trace of simTraces) {
@@ -191,6 +174,9 @@ export async function extractSpecsFromPDF(file, availableVariables = []) {
  * @returns {Promise<string>} Base64 data string
  */
 function fileToBase64(file) {
+    if (typeof FileReader === 'undefined' && file.arrayBuffer) {
+        return file.arrayBuffer().then(buffer => Buffer.from(buffer).toString('base64'));
+    }
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -249,80 +235,119 @@ export async function extractSpecsWithGemini(file, availableVariables = [], apiK
 
     const availableTracesList = availableVariables.map(v => `"${v.name}"`).join(", ");
 
-    const instructions = `You are a professional hardware engineer. Extract Absolute Maximum Ratings (voltages, currents, power dissipation) from the provided datasheet and map them to the available simulation traces to create design validation checks.
+    const prompt1 = `You are a professional hardware engineer. Extract ALL Absolute Maximum Ratings (voltages, currents, power dissipation) from the provided datasheet and create design validation checks.
 
-Available simulation traces (you MUST map rating checks to these where possible):
+Available simulation traces:
 [${availableTracesList}]
 
-Construct check specifications. The mathematical waveform expressions MUST use the available traces. If the rating corresponds to a pin (e.g. VIN), use the matching trace (e.g. V(in) or V(vin)). You can also construct differential expressions like V(in1, in2) or mathematical expressions like V(gate) - V(source) if applicable.
+CRITICAL RULE - NO GUESSWORK: Do NOT guess or hardcode mappings between pin names and auto-generated net names (like n001, n011, n018, n019). Only map a rating check to an available simulation trace if the trace name explicitly matches the pin/parameter name (e.g. V(in1), V(out), V(vin)). If no available simulation trace explicitly matches the pin name, construct the mathematical waveform expression using the standard pin name (e.g., "V(en)", "V(uv1)", "V(ov1)", "V(intvcc)").
 
 You must output a JSON array of check objects matching this schema:
 - compId: string, uppercase identifier (e.g., "VIN_MAX", "VOUT_MIN", "ISUPPLY_MAX")
 - description: string, clear description of what is checked
-- expression: string, mathematical expression using the available traces (e.g. "V(in)", "V(out)", or differential like "V(in1, in2)" or "V(gate) - V(source)").
+- expression: string, mathematical expression using explicit trace or pin names (e.g. "V(in1)", "V(out)", "V(en)").
 - metric: string, one of: "max_peak", "min_peak", "rms", "avg"
 - limit: number, the rating limit value
 - unit: string, the unit (e.g. "V", "A", "W")
 
-Only extract ratings that can be verified using the available simulation traces.
 Return ONLY the raw JSON array. Do not include markdown code block formatting.`;
 
-    parts.push({
-        text: instructions
-    });
+    const prompt2 = `You are a professional hardware engineer. Examine the Pin Configuration, Recommended Operating Conditions, and Electrical Characteristics tables in this datasheet. Extract ALL voltage and current limits for every pin (V1, V2, VOUT, UV1, OV1, UV2, OV2, EN, SHDN, VALID1, VALID2, INTVCC, CAS, HYS, VS1, VS2, etc.).
+
+Available simulation traces:
+[${availableTracesList}]
+
+CRITICAL RULE - NO GUESSWORK: Do NOT guess or map pin names to auto-generated net names (like n001, n011, n018, n019). Only map to an available simulation trace if its name explicitly matches the pin/parameter name (e.g. V(in1), V(in2), V(out)). Otherwise, use the standard pin name in the expression (e.g., "V(uv1)", "V(en)", "V(shdn)").
+
+You must output a JSON array of check objects matching this schema:
+- compId: string
+- description: string
+- expression: string (use explicitly matching traces or standard pin names like V(uv1))
+- metric: string ("max_peak", "min_peak", "rms", "avg")
+- limit: number
+- unit: string
+
+Return ONLY the raw JSON array. Do not include markdown code block formatting.`;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-    const requestBody = {
-        contents: [{
-            parts: parts
-        }],
-        generationConfig: {
-            responseMimeType: "application/json"
+    const schema = {
+        type: "ARRAY",
+        items: {
+            type: "OBJECT",
+            properties: {
+                compId: { type: "STRING" },
+                description: { type: "STRING" },
+                expression: { type: "STRING" },
+                metric: { type: "STRING", enum: ["max_peak", "min_peak", "rms", "avg"] },
+                limit: { type: "NUMBER" },
+                unit: { type: "STRING" }
+            },
+            required: ["compId", "description", "expression", "metric", "limit", "unit"]
         }
     };
 
-    if (isGemini) {
-        requestBody.generationConfig.responseSchema = {
-            type: "ARRAY",
-            items: {
-                type: "OBJECT",
-                properties: {
-                    compId: { type: "STRING" },
-                    description: { type: "STRING" },
-                    expression: { type: "STRING" },
-                    metric: { type: "STRING", enum: ["max_peak", "min_peak", "rms", "avg"] },
-                    limit: { type: "NUMBER" },
-                    unit: { type: "STRING" }
-                },
-                required: ["compId", "description", "expression", "metric", "limit", "unit"]
+    const makeReq = async (instructionText, includePdf = true) => {
+        const reqParts = includePdf ? [...parts, { text: instructionText }] : [{ text: instructionText }];
+        const requestBody = {
+            contents: [{ parts: reqParts }],
+            generationConfig: {
+                responseMimeType: "application/json"
             }
         };
+        if (isGemini) {
+            requestBody.generationConfig.responseSchema = schema;
+        }
+        const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+        });
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error?.message || `HTTP error ${response.status}`);
+        }
+        const resData = await response.json();
+        const textResult = resData.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!textResult) return [];
+        let cleanJsonText = textResult.trim().replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "");
+        try {
+            return JSON.parse(cleanJsonText);
+        } catch (e) {
+            console.warn("Failed to parse JSON candidate:", e);
+            return [];
+        }
+    };
+
+    // Execute 2 parallel extraction passes
+    const [res1, res2] = await Promise.all([
+        makeReq(prompt1, true),
+        makeReq(prompt2, true)
+    ]);
+    const combined = [...(Array.isArray(res1) ? res1 : []), ...(Array.isArray(res2) ? res2 : [])];
+
+    if (combined.length === 0) {
+        throw new Error("No specifications extracted from datasheet.");
     }
 
-    const response = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(requestBody)
-    });
+    // Execute Consolidation Pass
+    const consolidatePrompt = `You are a professional hardware engineer. Here is a combined list of raw extracted rating checks from multiple extraction passes on the datasheet:
+${JSON.stringify(combined, null, 2)}
 
-    if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error?.message || `HTTP error ${response.status}`);
-    }
+Available simulation traces from LTspice RAW file:
+[${availableTracesList}]
 
-    const resData = await response.json();
-    const textResult = resData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!textResult) {
-        throw new Error("No response content from Gemini API");
-    }
+Your task is to CONSOLIDATE, DEDUPLICATE, and STANDARDIZE this list into a comprehensive, authoritative set of design validation checks.
+Rules:
+1. Combine duplicate or overlapping checks into a single clean check per component limit (e.g. if V1_MAX is found twice, pick the best description and expression).
+2. CRITICAL RULE - NO GUESSWORK: Do NOT guess or map pin names to auto-generated LTspice net names (like n011, n012, n015, n017, n018, n019, n006, n007, n010). Only use an available simulation trace if its name explicitly matches the pin name (like V(in1), V(in2), V(out)). If a pin does not have an explicitly named trace in the available simulation traces, strictly use the standard pin name (like "V(uv1)", "V(en)", "V(valid1)", "V(intvcc)").
+3. Keep all unique, valid voltage and current limits.
+4. Return ONLY the consolidated JSON array matching the schema.`;
 
-    const parsed = JSON.parse(textResult.trim());
+    const consolidatedList = await makeReq(consolidatePrompt, false);
+    const list = Array.isArray(consolidatedList) && consolidatedList.length > 0 ? consolidatedList : combined;
+
     const specs = {};
-    const list = Array.isArray(parsed) ? parsed : (parsed.components || parsed.checks || []);
-
     for (const item of list) {
         if (!item.compId || !item.expression) continue;
         specs[item.compId] = {
